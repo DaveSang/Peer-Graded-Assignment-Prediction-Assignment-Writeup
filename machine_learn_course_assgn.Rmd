@@ -1,0 +1,103 @@
+---
+title: "Machine Learning Course Assignment"
+author: "DaveS"
+date: "Saturday, June 25, 2016"
+output: html_document
+---
+
+#The data for this project [The Weight Lifting Exercise Dataset] is available at http://groupware.les.inf.puc-rio.br/har
+
+#Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in five different ways. More information is available from the website http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+#Introduction
+We have data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants undertaking fitness traning.  The goal of this exercise is to predict the manner in which the users of the fitness monitors exercised. This is referred to as the 'classe' variable/field in the training set. Other variables are able to be used as a part of the prediction phase of the assignment. A report describing how the model was built, how cross validation was used, predict the expected out of sample error, and justify the thought processes undertaken to come to  conclusions re this analysis. The prediction model will be used to predict 20 different test cases. 
+
+#Loading the data
+```{r, results='hide'}
+fit_data <- read.csv("pml-training.csv")
+colnames(fit_data)
+#head(fit_data) #check beginning of dataset
+#tail(fit_data) #check end of dataset
+summary(fit_data) #look at the summary stats of the dataset
+```
+
+Loading the caret library
+```{r}
+#install.packages("caret") # if not already installed
+library(caret)
+```
+
+Setting the model test/train parameters - 60 % of training data used
+```{r}
+set.seed(1234)
+train <- createDataPartition(y=fit_data$classe,p=.60,list=F)
+training <- fit_data[train,]
+testing <- fit_data[-train,]
+```
+
+Cleaning the data
+```{r}
+Cleansed <- grep("name|timestamp|window|X", colnames(training), value=F) #exclude identifier, timestamp, and window fields
+trainingCleansed <- training[,-Cleansed]
+trainingCleansed[trainingCleansed==""] <- NA #allocate missing data as NA
+NArate <- apply(trainingCleansed, 2, function(x) sum(is.na(x)))/nrow(trainingCleansed)
+trainingCleansed <- trainingCleansed[!(NArate>0.95)] #select variables with over 95 % of data missing and exclude (NArate)
+#head(trainingCleansed) #looksee at structure of data
+#tail(trainingCleansed)
+summary(trainingCleansed) # summary of cleansed data
+```
+
+We still have a large amount of fields/variables at our disposal, we need to use Princiapal Component Analysis (PCA) to make things more manageable from an analytical perspective.  We also need to 'train' the PC to best analyse the data.
+```{r, results='hide'}
+preProcess <- preProcess(trainingCleansed[,1:52],method="pca",thresh=.8) #12 components are required
+preProcess <- preProcess(trainingCleansed[,1:52],method="pca",thresh=.9) #18 components are required
+preProcess <- preProcess(trainingCleansed[,1:52],method="pca",thresh=.95) #25 components are required
+
+preProcess <- preProcess(trainingCleansed[,1:52],method="pca",pcaComp=25) 
+preProcess$rotation
+trainingPC <- predict(preProcess,trainingCleansed[,1:52])
+```
+
+Next, we need to build a model - lets use the Random Forest builder.
+```{r}
+#install.packages("randomForest") # if not already installed
+library(randomForest)
+```
+Apply the builder using the classe field/variable.  Depending on your PC, this could take a while
+```{r}
+modFitRando <- randomForest(trainingCleansed$classe ~ .,data=trainingPC, do.trace=F)
+print(modFitRando) # a print out of the results
+```
+
+Now a check of the importance of each predictor
+```{r}
+importance(modFitRando)
+```
+
+And a check of the model with the test data
+```{r}
+testCleansed <- testing[,-Cleansed]
+testCleansed[testCleansed==""] <- NA
+NArate <- apply(testCleansed, 2, function(x) sum(is.na(x)))/nrow(testCleansed)
+testCleansed <- testCleansed[!(NArate>0.95)]
+testPC <- predict(preProcess,testCleansed[,1:52])
+#install.packages("e1071") # if needed
+library(e1071)
+confusionMatrix(testCleansed$classe,predict(modFitRando,testPC))
+```
+
+#Load the test data and apply to the newly generated model
+```{r}
+testdata <- read.csv("pml-testing.csv")
+testdataCleansed <- testdata[,-Cleansed]
+testdataCleansed[testdataCleansed==""] <- NA #allocate missing data as NA
+NArate <- apply(testdataCleansed, 2, function(x) sum(is.na(x)))/nrow(testdataCleansed)
+testdataCleansed <- testdataCleansed[!(NArate>0.95)] #again, select variables with over 95 % of data missing and exclude (NArate)
+testdtPC <- predict(preProcess,testdataCleansed[,1:52])
+testdataCleansed$classe <- predict(modFitRando,testdtPC) # using the classe variable/field
+```
+
+# Discussion
+In this analysis, 19622 observations from weight lifting based training were used to analyse and predict correct body movement from others during the exercise. Approximately 60 % of the data (11773 observations) were used to build a 'Random Forrest' based model, the remaining observational data (40 %, or 7849 observations) were used to validate the Random Forrest model. The statistics attributed to the Random Forrest model had an overall accuracy of approximately 97 % for the testing set, which is not overlapping with observations used to built the model. The sensitivity was in between approximately 92 % and 99 %; the specificity was over 99 % for all five classes (See background information, class A-E). class A was the data collected during the use of correct lifting technique while the other classes were data from incorrect lifting technique). The model was well developed to predict the exercise types (classe variable) during weight lifting training. 
+CAVEAT: The observation data used in this analysis was sourced from a specific demographic - six participants in an experiment using the Microsoft Kinect device only. With those experimental design parameters, the model is expected to perform with an accuracy of >=95 %.  Different experimental design parameters (e.g. larger sample size, environmental/altitudinal location, age group or device) may present different results.
